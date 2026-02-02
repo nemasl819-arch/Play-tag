@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>鬼抓人 - 巨大化碰撞修正版</title>
+    <style>
+        :root {
+            --bg-color: #fdf6e3;
+            --canvas-bg: #e0f2f1;
+            --text-color: #455a64;
+            --accent-color: #7e57c2;
+            --skill-color: #ffd700;
+            --ghost-wall: rgba(126, 87, 194, 0.6);
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #f0f4f8;
+            font-family: 'Segoe UI', "Microsoft JhengHei", Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--text-color);
+            overflow: hidden;
+        }
+
+        .game-container {
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            overflow: hidden;
+            background: var(--canvas-bg);
+            width: 800px;
+            height: 450px;
+            opacity: 0;
+            transform: scale(0.9);
+            animation: containerEnter 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+
+        @keyframes containerEnter {
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        canvas {
+            display: block;
+            background-color: var(--bg-color);
+        }
+
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.9);
+            z-index: 20;
+            transition: opacity 0.5s ease;
+        }
+
+        #mainMenu {
+            background: var(--bg-color);
+        }
+
+        #mainMenu h1 {
+            font-size: 42px;
+            margin-bottom: 20px;
+            color: var(--accent-color);
+            animation: titleFloat 3s ease-in-out infinite;
+        }
+
+        @keyframes titleFloat {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .settings-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+            width: 85%;
+            max-width: 550px;
+        }
+
+        .setting-item {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .setting-item label {
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .setting-item input, .setting-item select {
+            padding: 8px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            outline: none;
+            background: white;
+        }
+
+        .btn {
+            background: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 12px 40px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            background: #673ab7;
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(126, 87, 194, 0.4);
+        }
+
+        #countDownOverlay {
+            background: rgba(0,0,0,0.4);
+            display: none;
+            z-index: 30;
+        }
+
+        #countDownText {
+            font-size: 120px;
+            color: white;
+            font-weight: 900;
+            text-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+
+        .ui-hud {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 30px;
+            box-sizing: border-box;
+            pointer-events: none;
+            z-index: 10;
+            transition: transform 0.5s ease;
+        }
+
+        .hud-card {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 8px 20px;
+            border-radius: 50px;
+            font-size: 14px;
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .timer-card { color: #ff8a80; font-size: 20px; justify-content: center; }
+        .skill-ghost { color: var(--accent-color); }
+        .skill-kid { color: #fbc02d; }
+
+        #gameOver {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="game-container">
+        <!-- 主選單 -->
+        <div id="mainMenu" class="overlay">
+            <h1>鬼抓人：策略對決</h1>
+            <div class="settings-grid">
+                <div class="setting-item">
+                    <label>遊玩模式</label>
+                    <select id="cfgPlayers">
+                        <option value="1">1 人模式 (控制鬼)</option>
+                        <option value="2" selected>2 人對戰</option>
+                    </select>
+                </div>
+                <div class="setting-item">
+                    <label>遊戲時間 (秒)</label>
+                    <input type="number" id="cfgTime" value="30" min="5" max="120">
+                </div>
+                <div class="setting-item">
+                    <label>鬼的速度 (1-10)</label>
+                    <input type="number" id="cfgGhostSpeed" value="5" step="0.5" min="1" max="10">
+                </div>
+                <div class="setting-item">
+                    <label>人類速度 (1-10)</label>
+                    <input type="number" id="cfgKidSpeed" value="4.5" step="0.5" min="1" max="10">
+                </div>
+            </div>
+            <button class="btn" onclick="preStart()">準備開始</button>
+        </div>
+
+        <!-- 啟動倒數 -->
+        <div id="countDownOverlay" class="overlay">
+            <div id="countDownText">3</div>
+        </div>
+
+        <!-- 結算畫面 -->
+        <div id="gameOver" class="overlay">
+            <h1 id="winnerText">遊戲結束</h1>
+            <button class="btn" onclick="showMenu()">返回主選單</button>
+        </div>
+
+        <!-- 遊戲 HUD -->
+        <div class="ui-hud" id="hud">
+            <div class="hud-card skill-ghost">
+                <span>鬼技能</span>
+                <span id="ghostSkillHud">準備就緒</span>
+            </div>
+            <div class="hud-card timer-card">
+                <span id="timeLeft">30</span>
+            </div>
+            <div class="hud-card skill-kid">
+                <span>人類技能</span>
+                <span id="kidSkillHud">準備就緒</span>
+            </div>
+        </div>
+
+        <canvas id="gameCanvas" width="800" height="450"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const timerElement = document.getElementById('timeLeft');
+        const kidSkillHud = document.getElementById('kidSkillHud');
+        const ghostSkillHud = document.getElementById('ghostSkillHud');
+        const gameOverScreen = document.getElementById('gameOver');
+        const mainMenu = document.getElementById('mainMenu');
+        const countDownOverlay = document.getElementById('countDownOverlay');
+        const countDownText = document.getElementById('countDownText');
+        const winnerText = document.getElementById('winnerText');
+        const hud = document.getElementById('hud');
+
+        let gameActive = false;
+        let isEntering = false;
+        let lastTime = 0;
+        let timerAcc = 0;
+        
+        let config = { 
+            players: 2, 
+            time: 30, 
+            ghostSpeed: 5, 
+            kidSpeed: 4.5, 
+            batCount: 5, 
+            batSpeed: 3.2 
+        };
+
+        let timeLeft = 30;
+        const keys = {};
+        const SIZE = 35;
+        const walls = []; 
+
+        const ghost = { 
+            x: -100, y: 225, targetX: 100, targetY: 225, 
+            w: SIZE, h: SIZE, color: '#FFFFFF', bats: [],
+            skillCooldown: 0
+        };
+
+        const kid = { 
+            x: 900, y: 225, targetX: 650, targetY: 225, 
+            w: SIZE - 5, h: SIZE - 5, color: '#ffccbc',
+            isPowered: false,
+            powerTimer: 0,
+            skillCooldown: 0,
+            visualScale: 1 
+        };
+
+        window.addEventListener('keydown', e => { 
+            if (e.code === 'Space' && gameActive) createBats(); 
+            if (e.code === 'Enter' && gameActive) triggerKidSkill();
+            if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && gameActive) triggerGhostSkill();
+            keys[e.code] = true; 
+        });
+        window.addEventListener('keyup', e => keys[e.code] = false);
+
+        function showMenu() {
+            gameActive = false;
+            gameOverScreen.style.display = 'none';
+            mainMenu.style.display = 'flex';
+            mainMenu.style.opacity = '1';
+            hud.style.transform = 'translateY(-100px)';
+        }
+
+        function preStart() {
+            mainMenu.style.opacity = '0';
+            setTimeout(() => mainMenu.style.display = 'none', 500);
+
+            config.players = parseInt(document.getElementById('cfgPlayers').value);
+            config.time = parseInt(document.getElementById('cfgTime').value) || 30;
+            config.ghostSpeed = parseFloat(document.getElementById('cfgGhostSpeed').value) || 5;
+            config.kidSpeed = parseFloat(document.getElementById('cfgKidSpeed').value) || 4.5;
+
+            ghost.x = -100; ghost.y = 225; ghost.bats = [];
+            ghost.skillCooldown = 0;
+            
+            kid.x = 900; kid.y = 225;
+            kid.isPowered = false;
+            kid.powerTimer = 0;
+            kid.skillCooldown = 0;
+            kid.visualScale = 1;
+
+            walls.length = 0; 
+            
+            timeLeft = config.time;
+            timerElement.innerText = timeLeft;
+            kidSkillHud.innerText = "準備就緒";
+            ghostSkillHud.innerText = "準備就緒";
+            
+            countDownOverlay.style.display = 'flex';
+            let count = 3;
+            countDownText.innerText = count;
+            
+            const timer = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    countDownText.innerText = count;
+                } else {
+                    clearInterval(timer);
+                    countDownOverlay.style.display = 'none';
+                    startActualGame();
+                }
+            }, 1000);
+            
+            isEntering = true;
+            lastTime = performance.now();
+            requestAnimationFrame(enterAnimationLoop);
+        }
+
+        function startActualGame() {
+            isEntering = false;
+            gameActive = true;
+            hud.style.transform = 'translateY(0)';
+            lastTime = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function triggerKidSkill() {
+            if (kid.skillCooldown <= 0 && !kid.isPowered) {
+                kid.isPowered = true;
+                kid.powerTimer = 5000; 
+                kid.skillCooldown = 15000; 
+            }
+        }
+
+        function triggerGhostSkill() {
+            if (ghost.skillCooldown <= 0) {
+                const wallSize = 125; 
+                walls.push({
+                    x: ghost.x + ghost.w / 2 - wallSize / 2,
+                    y: ghost.y + ghost.h / 2 - wallSize / 2,
+                    w: wallSize,
+                    h: wallSize,
+                    pulse: 0
+                });
+                ghost.skillCooldown = 5000; 
+            }
+        }
+
+        function enterAnimationLoop(timestamp) {
+            if (!isEntering) return;
+            const deltaTime = timestamp - lastTime;
+            lastTime = timestamp;
+            ghost.x += (ghost.targetX - ghost.x) * 0.08;
+            kid.x += (kid.targetX - kid.x) * 0.08;
+            draw();
+            requestAnimationFrame(enterAnimationLoop);
+        }
+
+        function endGame(winner, method = "") {
+            gameActive = false;
+            gameOverScreen.style.display = 'flex';
+            
+            if (winner === "Draw") {
+                winnerText.innerText = "計時結束，雙方平手！";
+                return;
+            }
+
+            if (method === "eat") {
+                winnerText.innerText = "人類巨型化並吃掉了鬼！人類獲勝！";
+            } else if (config.players === 1) {
+                winnerText.innerText = winner === "Ghost" ? "成功抓到人類！" : "人類逃走了...";
+            } else {
+                winnerText.innerText = winner === "Ghost" ? "鬼 獲勝！" : "人類 獲勝！";
+            }
+        }
+
+        function createBats() {
+            const startX = ghost.x + ghost.w / 2;
+            const startY = ghost.y + ghost.h / 2;
+            for (let i = 0; i < config.batCount; i++) {
+                const angle = (i / config.batCount) * Math.PI * 2;
+                ghost.bats.push({
+                    x: startX, y: startY,
+                    vx: Math.cos(angle) * 2, vy: Math.sin(angle) * 2,
+                    life: 4000, wingState: Math.random() * Math.PI
+                });
+            }
+        }
+
+        function checkWallCollision(objX, objY, objW, objH) {
+            // 修正：巨大化期間也會被牆壁阻擋
+            for (const wall of walls) {
+                if (objX < wall.x + wall.w && objX + objW > wall.x &&
+                    objY < wall.y + wall.h && objY + objH > wall.y) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function update(deltaTime) {
+            if (!gameActive) return;
+
+            timerAcc += deltaTime;
+            if (timerAcc >= 1000) {
+                timeLeft--;
+                timerElement.innerText = timeLeft;
+                timerAcc -= 1000;
+                if (timeLeft <= 0) {
+                    endGame("Draw");
+                }
+            }
+
+            if (kid.isPowered) {
+                kid.powerTimer -= deltaTime;
+                kid.visualScale += (3.5 - kid.visualScale) * 0.1; 
+                if (kid.powerTimer <= 0) kid.isPowered = false;
+            } else {
+                kid.visualScale += (1.0 - kid.visualScale) * 0.1;
+            }
+
+            if (kid.skillCooldown > 0) {
+                kid.skillCooldown -= deltaTime;
+                kidSkillHud.innerText = Math.max(0, (kid.skillCooldown / 1000)).toFixed(1) + "s";
+            } else {
+                kidSkillHud.innerText = "準備就緒";
+            }
+
+            if (ghost.skillCooldown > 0) {
+                ghost.skillCooldown -= deltaTime;
+                ghostSkillHud.innerText = Math.max(0, (ghost.skillCooldown / 1000)).toFixed(1) + "s";
+            } else {
+                ghostSkillHud.innerText = "準備就緒";
+            }
+
+            for (let i = ghost.bats.length - 1; i >= 0; i--) {
+                const b = ghost.bats[i];
+                b.life -= deltaTime;
+                const dx = (kid.x + (kid.w * kid.visualScale)/2) - b.x;
+                const dy = (kid.y + (kid.h * kid.visualScale)/2) - b.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist > 0) {
+                    b.vx += (dx / dist) * 0.15;
+                    b.vy += (dy / dist) * 0.15;
+                    const speed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+                    if (speed > config.batSpeed) { b.vx = (b.vx / speed) * config.batSpeed; b.vy = (b.vy / speed) * config.batSpeed; }
+                    b.x += b.vx; b.y += b.vy;
+                }
+                b.wingState += 0.3; 
+                
+                if (b.x > kid.x && b.x < kid.x + (kid.w * kid.visualScale) && 
+                    b.y > kid.y && b.y < kid.y + (kid.h * kid.visualScale)) {
+                    if (kid.isPowered) {
+                        ghost.bats.splice(i, 1);
+                    } else {
+                        kid.x = ghost.x; kid.y = ghost.y;
+                        ghost.bats = []; break;
+                    }
+                    continue;
+                }
+                if (b.life <= 0) ghost.bats.splice(i, 1);
+            }
+
+            const gs = config.ghostSpeed;
+            if (keys['KeyW'] && ghost.y > 0) ghost.y -= gs;
+            if (keys['KeyS'] && ghost.y < canvas.height - ghost.h) ghost.y += gs;
+            if (keys['KeyA'] && ghost.x > 0) ghost.x -= gs;
+            if (keys['KeyD'] && ghost.x < canvas.width - ghost.w) ghost.x += gs;
+
+            const ks = kid.isPowered ? config.kidSpeed * 1.2 : config.kidSpeed; 
+            const kw = kid.w * kid.visualScale;
+            const kh = kid.h * kid.visualScale;
+
+            if (config.players === 2) {
+                let nextX = kid.x;
+                let nextY = kid.y;
+
+                if (keys['ArrowUp'] && kid.y > 0) {
+                    nextY = kid.y - ks;
+                    if (!checkWallCollision(kid.x, nextY, kw, kh)) kid.y = nextY;
+                }
+                if (keys['ArrowDown'] && kid.y < canvas.height - kh) {
+                    nextY = kid.y + ks;
+                    if (!checkWallCollision(kid.x, nextY, kw, kh)) kid.y = nextY;
+                }
+                if (keys['ArrowLeft'] && kid.x > 0) {
+                    nextX = kid.x - ks;
+                    if (!checkWallCollision(nextX, kid.y, kw, kh)) kid.x = nextX;
+                }
+                if (keys['ArrowRight'] && kid.x < canvas.width - kw) {
+                    nextX = kid.x + ks;
+                    if (!checkWallCollision(nextX, kid.y, kw, kh)) kid.x = nextX;
+                }
+            } else {
+                let dx = kid.x - ghost.x;
+                let dy = kid.y - ghost.y;
+                let dist = Math.sqrt(dx*dx + dy*dy);
+                
+                if (dist < 120 && kid.skillCooldown <= 0) triggerKidSkill();
+
+                let vx = (dx / dist) * ks * 0.8;
+                let vy = (dy / dist) * ks * 0.8;
+                
+                let nextX = kid.x + vx;
+                let nextY = kid.y + vy;
+
+                if (!checkWallCollision(nextX, nextY, kw, kh)) {
+                    kid.x = nextX; kid.y = nextY;
+                }
+
+                if (kid.x < 0) kid.x = 0; if (kid.x > canvas.width - kw) kid.x = canvas.width - kw;
+                if (kid.y < 0) kid.y = 0; if (kid.y > canvas.height - kh) kid.y = canvas.height - kh;
+            }
+
+            const kidHitbox = { x: kid.x, y: kid.y, w: kw, h: kh };
+            if (ghost.x < kidHitbox.x + kidHitbox.w && ghost.x + ghost.w > kidHitbox.x &&
+                ghost.y < kidHitbox.y + kidHitbox.h && ghost.y + ghost.h > kidHitbox.y) {
+                if (kid.isPowered && kid.visualScale > 2.0) {
+                    endGame("Kid", "eat");
+                } else if (!kid.isPowered) {
+                    endGame("Ghost");
+                }
+            }
+
+            walls.forEach(w => w.pulse += 0.05);
+        }
+
+        function drawWall(w) {
+            ctx.save();
+            ctx.fillStyle = 'var(--ghost-wall)';
+            ctx.shadowBlur = 10 + Math.sin(w.pulse) * 5;
+            ctx.shadowColor = '#7e57c2';
+            ctx.globalAlpha = 0.5 + Math.sin(w.pulse) * 0.2;
+            ctx.fillRect(w.x, w.y, w.w, w.h);
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(w.x + 5, w.y + 5, w.w - 10, w.h - 10);
+            ctx.restore();
+        }
+
+        function drawBat(b) {
+            ctx.fillStyle = "#333";
+            const wingY = Math.sin(b.wingState) * 6;
+            ctx.beginPath();
+            ctx.ellipse(b.x, b.y, 4, 3, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.moveTo(b.x - 2, b.y); ctx.lineTo(b.x - 10, b.y - wingY); ctx.lineTo(b.x - 2, b.y + 2); ctx.fill();
+            ctx.beginPath(); ctx.moveTo(b.x + 2, b.y); ctx.lineTo(b.x + 10, b.y - wingY); ctx.lineTo(b.x + 2, b.y + 2); ctx.fill();
+        }
+
+        function drawGhost(x, y) {
+            ctx.fillStyle = ghost.color;
+            ctx.beginPath(); ctx.arc(x + 17, y + 15, 17, Math.PI, 0); ctx.lineTo(x + 34, y + 35);
+            for(let i = 0; i < 3; i++) ctx.arc(x + 28 - (i * 11), y + 35, 6, 0, Math.PI);
+            ctx.lineTo(x, y + 15); ctx.fill();
+            ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(x + 12, y + 12, 2.5, 0, Math.PI * 2); ctx.arc(x + 22, y + 12, 2.5, 0, Math.PI * 2); ctx.fill();
+        }
+
+        function drawKid(x, y) {
+            const scale = kid.visualScale;
+            const pulse = kid.isPowered ? Math.sin(Date.now() / 50) * 10 : 0;
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.scale(scale, scale);
+            
+            ctx.fillStyle = kid.isPowered ? '#ffd700' : '#b2dfdb'; 
+            ctx.fillRect(5, 15, 20, 20);
+            
+            ctx.fillStyle = kid.isPowered ? '#fff176' : kid.color; 
+            ctx.beginPath(); ctx.arc(15, 10, 10, 0, Math.PI * 2); ctx.fill();
+            
+            ctx.fillStyle = '#333'; 
+            ctx.beginPath(); ctx.arc(12, 9, 1.5, 0, Math.PI * 2); ctx.arc(18, 9, 1.5, 0, Math.PI * 2); ctx.fill();
+            
+            if (kid.isPowered) {
+                ctx.restore();
+                ctx.save();
+                ctx.strokeStyle = '#ffd700';
+                ctx.lineWidth = 4;
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = '#ffd700';
+                ctx.globalAlpha = 0.6;
+                ctx.beginPath(); 
+                ctx.arc(x + (15 * scale), y + (15 * scale), (25 * scale) + pulse, 0, Math.PI * 2); 
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#e8f5e9';
+            ctx.beginPath(); ctx.moveTo(0, 450); ctx.quadraticCurveTo(200, 380, 400, 420); ctx.quadraticCurveTo(600, 460, 800, 410); ctx.lineTo(800, 450); ctx.fill();
+            
+            walls.forEach(drawWall);
+            ghost.bats.forEach(drawBat);
+            drawKid(kid.x, kid.y);
+            drawGhost(ghost.x, ghost.y);
+        }
+
+        function gameLoop(timestamp) {
+            if (!gameActive) return;
+            const deltaTime = timestamp - lastTime;
+            lastTime = timestamp;
+            update(deltaTime);
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        hud.style.transform = 'translateY(-100px)';
+    </script>
+</body>
+</html>
