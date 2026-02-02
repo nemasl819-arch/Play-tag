@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>鬼抓人 - 蜘蛛與迷霧版</title>
+    <title>鬼抓人 - 蜘蛛必中版</title>
     <style>
         :root {
             --bg-color: #fdf6e3;
@@ -211,7 +211,7 @@
                 </div>
             </div>
             <button class="btn" onclick="preStart()">準備開始</button>
-            <div class="controls-hint">鬼: WASD移動 | 空白: 蝙蝠 | Ctrl: 蜘蛛 | Shift: 牆<br>人: 方向鍵移動 | Enter: 巨大化</div>
+            <div class="controls-hint">鬼: WASD移動 | 空白: 蝙蝠 | Ctrl: 蜘蛛 (必中5發) | Shift: 牆<br>人: 方向鍵移動 | Enter: 巨大化</div>
         </div>
 
         <!-- 啟動倒數 -->
@@ -280,8 +280,8 @@
         const ghost = { 
             x: -100, y: 225, targetX: 100, targetY: 225, 
             w: SIZE, h: SIZE, color: '#FFFFFF', bats: [],
-            spider: null, // 蜘蛛對象
-            webs: [],     // 蛛網陣列
+            spider: null,
+            webs: [],
             skillCooldown: 0
         };
 
@@ -292,12 +292,11 @@
             powerTimer: 0,
             skillCooldown: 0,
             visualScale: 1,
-            stunnedTimer: 0 // 被束縛時間
+            stunnedTimer: 0 
         };
 
         window.addEventListener('keydown', e => { 
             if (e.code === 'Space' && gameActive) {
-                // 如果蜘蛛不存在，才能放蝙蝠
                 if (!ghost.spider) createBats(); 
             }
             if (e.code === 'Enter' && gameActive) triggerKidSkill();
@@ -396,7 +395,6 @@
         }
 
         function triggerSpiderSkill() {
-            // 如果目前沒有蜘蛛，則可以召喚
             if (!ghost.spider) {
                 ghost.spider = {
                     x: ghost.x,
@@ -404,7 +402,7 @@
                     w: 40,
                     h: 30,
                     shootAcc: 0,
-                    shotsLeft: 5 // 噴射 5 次後消失
+                    shotsLeft: 5
                 };
             }
         }
@@ -512,51 +510,58 @@
                 if (f.life <= 0 || f.opacity <= 0) fogs.splice(i, 1);
             }
 
-            // 更新蜘蛛
+            // 更新蜘蛛發射邏輯
             if (ghost.spider) {
                 ghost.spider.shootAcc += deltaTime;
-                if (ghost.spider.shootAcc >= 2000) {
-                    // 生成蛛網：直線向右方發射
+                // 將射速調整為每 0.5 秒 (500 毫秒)
+                if (ghost.spider.shootAcc >= 500) {
+                    const dx = kid.x - ghost.spider.x;
+                    const dy = kid.y - ghost.spider.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
                     ghost.webs.push({
                         x: ghost.spider.x + 20,
                         y: ghost.spider.y + 10,
-                        radius: 15,
-                        vx: 6,
-                        vy: 0,
-                        life: 3000
+                        radius: 18,
+                        vx: (dx / dist) * 5,
+                        vy: (dy / dist) * 5,
+                        life: 5000 
                     });
                     ghost.spider.shootAcc = 0;
-                    ghost.spider.shotsLeft--; // 減少剩餘射擊次數
-                    
-                    // 次數用完後消失
-                    if (ghost.spider.shotsLeft <= 0) {
-                        ghost.spider = null;
-                    }
+                    ghost.spider.shotsLeft--;
+                    if (ghost.spider.shotsLeft <= 0) ghost.spider = null;
                 }
             }
 
-            // 更新蛛網
+            // 更新必中蛛網 (自動追蹤)
             for (let i = ghost.webs.length - 1; i >= 0; i--) {
                 const w = ghost.webs[i];
+                
+                const dx = (kid.x + (kid.w * kid.visualScale)/2) - w.x;
+                const dy = (kid.y + (kid.h * kid.visualScale)/2) - w.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                
+                if (dist > 5) {
+                    const speed = 5.5; 
+                    w.vx = (dx / dist) * speed;
+                    w.vy = (dy / dist) * speed;
+                }
+                
                 w.x += w.vx;
+                w.y += w.vy;
                 w.life -= deltaTime;
                 
-                // 檢查與人類的碰撞
                 const kw = kid.w * kid.visualScale;
                 const kh = kid.h * kid.visualScale;
                 if (w.x + w.radius > kid.x && w.x - w.radius < kid.x + kw &&
                     w.y + w.radius > kid.y && w.y - w.radius < kid.y + kh) {
-                    kid.stunnedTimer = 2000; // 被包住 2 秒
+                    kid.stunnedTimer = 2500; 
                     ghost.webs.splice(i, 1);
                     continue;
                 }
                 if (w.life <= 0) ghost.webs.splice(i, 1);
             }
 
-            // 人類受困計時
-            if (kid.stunnedTimer > 0) {
-                kid.stunnedTimer -= deltaTime;
-            }
+            if (kid.stunnedTimer > 0) kid.stunnedTimer -= deltaTime;
 
             if (kid.isPowered) {
                 kid.powerTimer -= deltaTime;
@@ -575,7 +580,7 @@
             }
 
             if (ghost.spider) {
-                ghostSkillHud.innerText = "蜘蛛活動中 (" + ghost.spider.shotsLeft + ")";
+                ghostSkillHud.innerText = "蜘蛛狂噴中 (" + ghost.spider.shotsLeft + ")";
             } else if (ghost.skillCooldown > 0) {
                 ghost.skillCooldown -= deltaTime;
                 ghostSkillHud.innerText = Math.max(0, (ghost.skillCooldown / 1000)).toFixed(1) + "s";
@@ -617,7 +622,6 @@
             if (keys['KeyA'] && ghost.x > 0) ghost.x -= gs;
             if (keys['KeyD'] && ghost.x < canvas.width - ghost.w) ghost.x += gs;
 
-            // 只有在沒受困時才能移動
             if (kid.stunnedTimer <= 0) {
                 const ks = kid.isPowered ? config.kidSpeed * 1.2 : config.kidSpeed; 
                 const kw = kid.w * kid.visualScale;
@@ -698,13 +702,10 @@
         function drawSpider(s) {
             ctx.save();
             ctx.translate(s.x, s.y);
-            // 畫蜘蛛身體
             ctx.fillStyle = "#222";
             ctx.beginPath(); ctx.ellipse(20, 15, 12, 10, 0, 0, Math.PI * 2); ctx.fill();
-            // 畫眼睛
             ctx.fillStyle = "red";
             ctx.beginPath(); ctx.arc(16, 12, 1.5, 0, Math.PI*2); ctx.arc(24, 12, 1.5, 0, Math.PI*2); ctx.fill();
-            // 畫腳
             ctx.strokeStyle = "#222"; ctx.lineWidth = 2;
             for(let i=0; i<4; i++) {
                 ctx.beginPath(); ctx.moveTo(12, 15); ctx.lineTo(2, 5 + i*8); ctx.stroke();
@@ -715,8 +716,10 @@
 
         function drawWeb(w) {
             ctx.save();
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
-            ctx.lineWidth = 2;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = "rgba(255, 255, 255, 1)";
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+            ctx.lineWidth = 2.5;
             ctx.beginPath();
             ctx.arc(w.x, w.y, w.radius, 0, Math.PI*2);
             for(let i=0; i<8; i++) {
@@ -757,7 +760,6 @@
             ctx.beginPath(); ctx.arc(15, 10, 10, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(12, 9, 1.5, 0, Math.PI * 2); ctx.arc(18, 9, 1.5, 0, Math.PI * 2); ctx.fill();
             
-            // 被困住時畫出網格
             if (kid.stunnedTimer > 0) {
                 ctx.strokeStyle = "rgba(255, 255, 255, 0.9)"; ctx.lineWidth = 1.5;
                 ctx.strokeRect(-2, -2, 34, 34);
