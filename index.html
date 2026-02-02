@@ -188,7 +188,7 @@
     <div class="game-container">
         <!-- 主選單 -->
         <div id="mainMenu" class="overlay">
-            <h1>鬼抓人：蜘蛛束縛版</h1>
+            <h1>鬼抓人：瞬發蛛絲版</h1>
             <div class="settings-grid">
                 <div class="setting-item">
                     <label>遊玩模式</label>
@@ -211,7 +211,7 @@
                 </div>
             </div>
             <button class="btn" onclick="preStart()">準備開始</button>
-            <div class="controls-hint">鬼: WASD移動 | 空白: 蝙蝠 | Ctrl: 蜘蛛 (指向射擊) | Shift: 牆<br>人: 方向鍵移動 | Enter: 巨大化 (被蛛絲命中時禁用)</div>
+            <div class="controls-hint">鬼: WASD移動 | 空白: 蝙蝠 | Ctrl: 狙擊蜘蛛 | Shift: 牆<br>人: 方向鍵移動 | Enter: 巨大化 (被蛛絲命中時禁用)</div>
         </div>
 
         <!-- 啟動倒數 -->
@@ -228,7 +228,7 @@
         <!-- 遊戲 HUD -->
         <div class="ui-hud" id="hud">
             <div class="hud-card skill-ghost">
-                <span>鬼技能 (蜘蛛)</span>
+                <span>鬼技能 (超級蛛絲)</span>
                 <span id="ghostSkillHud">準備就緒</span>
             </div>
             <div class="hud-card timer-card">
@@ -373,7 +373,6 @@
         }
 
         function triggerKidSkill() {
-            // 如果人類正在麻痺(stunned)，則禁止使用技能
             if (kid.stunnedTimer > 0) return;
 
             if (kid.skillCooldown <= 0 && !kid.isPowered) {
@@ -405,7 +404,7 @@
                     w: 40,
                     h: 30,
                     shootAcc: 0,
-                    shotsLeft: 5
+                    shotsLeft: 8 // 增加彈藥
                 };
             }
         }
@@ -442,16 +441,14 @@
             gameOverScreen.style.display = 'flex';
             
             if (winner === "Draw") {
-                winnerText.innerText = "計時結束，雙方平手！";
+                winnerText.innerText = "時間終了！";
                 return;
             }
 
             if (method === "eat") {
-                winnerText.innerText = "人類巨型化並吃掉了鬼！人類獲勝！";
-            } else if (config.players === 1) {
-                winnerText.innerText = winner === "Ghost" ? "成功抓到人類！" : "人類逃走了...";
+                winnerText.innerText = "人類巨型化，反殺鬼！";
             } else {
-                winnerText.innerText = winner === "Ghost" ? "鬼 獲勝！" : "人類 獲勝！";
+                winnerText.innerText = winner === "Ghost" ? "鬼成功獵殺！" : "人類成功逃脫！";
             }
         }
 
@@ -493,9 +490,7 @@
                 timeLeft--;
                 timerElement.innerText = timeLeft;
                 timerAcc -= 1000;
-                if (timeLeft <= 0) {
-                    endGame("Draw");
-                }
+                if (timeLeft <= 0) endGame("Draw");
             }
 
             // 更新迷霧
@@ -513,24 +508,26 @@
                 if (f.life <= 0 || f.opacity <= 0) fogs.splice(i, 1);
             }
 
-            // 更新蜘蛛發射邏輯
+            // 超級蛛絲發射邏輯 (速度 * 100)
             if (ghost.spider) {
+                // 發射間隔變短 (300ms)
                 ghost.spider.shootAcc += deltaTime;
-                if (ghost.spider.shootAcc >= 500) {
+                if (ghost.spider.shootAcc >= 300) {
                     const targetX = kid.x + (kid.w * kid.visualScale) / 2;
                     const targetY = kid.y + (kid.h * kid.visualScale) / 2;
                     const dx = targetX - (ghost.spider.x + 20);
                     const dy = targetY - (ghost.spider.y + 15);
                     const dist = Math.sqrt(dx*dx + dy*dy);
                     
-                    const shootSpeed = 7;
+                    // 基礎速度 7 * 100 = 700! 基本上是瞬間抵達
+                    const shootSpeed = 700;
                     ghost.webs.push({
                         x: ghost.spider.x + 20,
                         y: ghost.spider.y + 15,
-                        radius: 18,
+                        radius: 20,
                         vx: (dx / dist) * shootSpeed,
                         vy: (dy / dist) * shootSpeed,
-                        life: 5000 
+                        life: 2000 // 速度太快，生命週期不用太長
                     });
                     ghost.spider.shootAcc = 0;
                     ghost.spider.shotsLeft--;
@@ -538,34 +535,31 @@
                 }
             }
 
-            // 更新蛛網 (自動追蹤導航)
+            // 更新蛛網 (超高速運動)
             for (let i = ghost.webs.length - 1; i >= 0; i--) {
                 const w = ghost.webs[i];
-                const targetX = kid.x + (kid.w * kid.visualScale)/2;
-                const targetY = kid.y + (kid.h * kid.visualScale)/2;
-                const dx = targetX - w.x;
-                const dy = targetY - w.y;
-                const dist = Math.sqrt(dx*dx + dy*dy);
                 
-                if (dist > 5) {
-                    const chaseSpeed = 6.5; 
-                    w.vx = (dx / dist) * chaseSpeed;
-                    w.vy = (dy / dist) * chaseSpeed;
+                // 每幀移動多次以確保超高速下不會跳過碰撞檢測
+                const subSteps = 5;
+                let collided = false;
+                for(let step=0; step<subSteps; step++) {
+                    w.x += w.vx / subSteps;
+                    w.y += w.vy / subSteps;
+                    
+                    const kw = kid.w * kid.visualScale;
+                    const kh = kid.h * kid.visualScale;
+                    if (w.x + w.radius > kid.x && w.x - w.radius < kid.x + kw &&
+                        w.y + w.radius > kid.y && w.y - w.radius < kid.y + kh) {
+                        kid.stunnedTimer = 4000; // 被超高速蛛絲命中，麻痺時間延長
+                        collided = true;
+                        break;
+                    }
                 }
                 
-                w.x += w.vx;
-                w.y += w.vy;
                 w.life -= deltaTime;
-                
-                const kw = kid.w * kid.visualScale;
-                const kh = kid.h * kid.visualScale;
-                if (w.x + w.radius > kid.x && w.x - w.radius < kid.x + kw &&
-                    w.y + w.radius > kid.y && w.y - w.radius < kid.y + kh) {
-                    kid.stunnedTimer = 3000; // 麻痺時間
+                if (collided || w.life <= 0 || w.x < -100 || w.x > 900 || w.y < -100 || w.y > 550) {
                     ghost.webs.splice(i, 1);
-                    continue;
                 }
-                if (w.life <= 0) ghost.webs.splice(i, 1);
             }
 
             if (kid.stunnedTimer > 0) kid.stunnedTimer -= deltaTime;
@@ -589,7 +583,7 @@
             }
 
             if (ghost.spider) {
-                ghostSkillHud.innerText = "蜘蛛鎖定射擊 (" + ghost.spider.shotsLeft + ")";
+                ghostSkillHud.innerText = "狙擊中 (" + ghost.spider.shotsLeft + ")";
             } else if (ghost.skillCooldown > 0) {
                 ghost.skillCooldown -= deltaTime;
                 ghostSkillHud.innerText = Math.max(0, (ghost.skillCooldown / 1000)).toFixed(1) + "s";
@@ -597,6 +591,7 @@
                 ghostSkillHud.innerText = "準備就緒";
             }
 
+            // 蝙蝠邏輯
             for (let i = ghost.bats.length - 1; i >= 0; i--) {
                 const b = ghost.bats[i];
                 b.life -= deltaTime;
@@ -631,31 +626,17 @@
             if (keys['KeyA'] && ghost.x > 0) ghost.x -= gs;
             if (keys['KeyD'] && ghost.x < canvas.width - ghost.w) ghost.x += gs;
 
-            // 人類移動邏輯：只有在非麻痺狀態下才能移動
+            // 人類移動 (麻痺時禁止)
             if (kid.stunnedTimer <= 0) {
                 const ks = kid.isPowered ? config.kidSpeed * 1.2 : config.kidSpeed; 
                 const kw = kid.w * kid.visualScale;
                 const kh = kid.h * kid.visualScale;
 
                 if (config.players === 2) {
-                    let nextX = kid.x;
-                    let nextY = kid.y;
-                    if (keys['ArrowUp']) {
-                        nextY = kid.y - ks;
-                        if (nextY >= 0 && !checkWallCollision(kid.x, nextY, kw, kh)) kid.y = nextY;
-                    }
-                    if (keys['ArrowDown']) {
-                        nextY = kid.y + ks;
-                        if (nextY <= canvas.height - kh && !checkWallCollision(kid.x, nextY, kw, kh)) kid.y = nextY;
-                    }
-                    if (keys['ArrowLeft']) {
-                        nextX = kid.x - ks;
-                        if (nextX >= 0 && !checkWallCollision(nextX, kid.y, kw, kh)) kid.x = nextX;
-                    }
-                    if (keys['ArrowRight']) {
-                        nextX = kid.x + ks;
-                        if (nextX <= canvas.width - kw && !checkWallCollision(nextX, kid.y, kw, kh)) kid.x = nextX;
-                    }
+                    if (keys['ArrowUp'] && kid.y > 0 && !checkWallCollision(kid.x, kid.y - ks, kw, kh)) kid.y -= ks;
+                    if (keys['ArrowDown'] && kid.y < canvas.height - kh && !checkWallCollision(kid.x, kid.y + ks, kw, kh)) kid.y += ks;
+                    if (keys['ArrowLeft'] && kid.x > 0 && !checkWallCollision(kid.x - ks, kid.y, kw, kh)) kid.x -= ks;
+                    if (keys['ArrowRight'] && kid.x < canvas.width - kw && !checkWallCollision(kid.x + ks, kid.y, kw, kh)) kid.x += ks;
                 } else {
                     let dx = kid.x - ghost.x;
                     let dy = kid.y - ghost.y;
@@ -663,21 +644,16 @@
                     if (dist < 120 && kid.skillCooldown <= 0) triggerKidSkill();
                     let vx = (dx / dist) * ks * 0.8;
                     let vy = (dy / dist) * ks * 0.8;
-                    let nextX = kid.x + vx;
-                    let nextY = kid.y + vy;
-                    if (nextX >= 0 && nextX <= canvas.width - kw && 
-                        nextY >= 0 && nextY <= canvas.height - kh &&
-                        !checkWallCollision(nextX, nextY, kw, kh)) {
-                        kid.x = nextX; kid.y = nextY;
+                    if (!checkWallCollision(kid.x + vx, kid.y + vy, kw, kh)) {
+                        kid.x += vx; kid.y += vy;
                     }
                 }
             }
 
             const kw = kid.w * kid.visualScale;
             const kh = kid.h * kid.visualScale;
-            const kidHitbox = { x: kid.x, y: kid.y, w: kw, h: kh };
-            if (ghost.x < kidHitbox.x + kidHitbox.w && ghost.x + ghost.w > kidHitbox.x &&
-                ghost.y < kidHitbox.y + kidHitbox.h && ghost.y + ghost.h > kidHitbox.y) {
+            if (ghost.x < kid.x + kw && ghost.x + ghost.w > kid.x &&
+                ghost.y < kid.y + kh && ghost.y + ghost.h > kid.y) {
                 if (kid.isPowered && kid.visualScale > 2.0) {
                     endGame("Kid", "eat");
                 } else if (!kid.isPowered) {
@@ -712,7 +688,8 @@
         function drawSpider(s) {
             ctx.save();
             ctx.translate(s.x, s.y);
-            const shake = s.shootAcc > 400 ? Math.sin(Date.now()*0.1)*3 : 0;
+            // 瞄準時的震動
+            const shake = Math.sin(Date.now()*0.2)*4;
             ctx.translate(shake, 0);
 
             ctx.fillStyle = "#222";
@@ -724,15 +701,20 @@
                 ctx.beginPath(); ctx.moveTo(12, 15); ctx.lineTo(2, 5 + i*8); ctx.stroke();
                 ctx.beginPath(); ctx.moveTo(28, 15); ctx.lineTo(38, 5 + i*8); ctx.stroke();
             }
+            // 瞄準雷射線
+            ctx.setLineDash([5, 5]);
+            ctx.strokeStyle = "rgba(255, 0, 0, 0.4)";
+            ctx.beginPath(); ctx.moveTo(20, 15); ctx.lineTo(kid.x + (kid.w*kid.visualScale)/2 - s.x, kid.y + (kid.h*kid.visualScale)/2 - s.y); ctx.stroke();
             ctx.restore();
         }
 
         function drawWeb(w) {
             ctx.save();
-            ctx.shadowBlur = 15;
-            ctx.shadowColor = "rgba(255, 255, 255, 1)";
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
-            ctx.lineWidth = 2.5;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = "white";
+            ctx.strokeStyle = "rgba(255, 255, 255, 1)";
+            ctx.lineWidth = 3;
+            // 畫出帶有動態感的超高速蛛絲
             ctx.beginPath();
             ctx.arc(w.x, w.y, w.radius, 0, Math.PI*2);
             for(let i=0; i<8; i++) {
@@ -740,6 +722,12 @@
                 ctx.moveTo(w.x, w.y);
                 ctx.lineTo(w.x + Math.cos(ang)*w.radius, w.y + Math.sin(ang)*w.radius);
             }
+            ctx.stroke();
+            // 拖尾效果
+            ctx.globalAlpha = 0.3;
+            ctx.beginPath();
+            ctx.moveTo(w.x, w.y);
+            ctx.lineTo(w.x - w.vx*0.05, w.y - w.vy*0.05);
             ctx.stroke();
             ctx.restore();
         }
@@ -773,22 +761,22 @@
             ctx.beginPath(); ctx.arc(15, 10, 10, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(12, 9, 1.5, 0, Math.PI * 2); ctx.arc(18, 9, 1.5, 0, Math.PI * 2); ctx.fill();
             
-            // 如果麻痺中，畫出更明顯的蜘蛛絲纏繞效果
             if (kid.stunnedTimer > 0) {
-                ctx.strokeStyle = "rgba(255, 255, 255, 1)"; ctx.lineWidth = 2;
+                // 加強束縛視覺效果
+                ctx.strokeStyle = "white"; ctx.lineWidth = 2;
                 ctx.beginPath();
-                for(let i=0; i<6; i++){
-                    const ang = (i/6)*Math.PI*2 + (Date.now()/200);
+                for(let i=0; i<12; i++){
+                    const ang = (i/12)*Math.PI*2 + (Date.now()/100);
                     ctx.moveTo(15, 15);
-                    ctx.lineTo(15 + Math.cos(ang)*25, 15 + Math.sin(ang)*25);
+                    ctx.lineTo(15 + Math.cos(ang)*30, 15 + Math.sin(ang)*30);
                 }
                 ctx.stroke();
                 
-                // 畫 X 符號表示禁止移動
-                ctx.strokeStyle = "rgba(255, 50, 50, 0.8)";
+                // 禁止符號
+                ctx.strokeStyle = "#ff1744"; ctx.lineWidth = 3;
                 ctx.beginPath();
-                ctx.moveTo(0,0); ctx.lineTo(30,30);
-                ctx.moveTo(30,0); ctx.lineTo(0,30);
+                ctx.arc(15, 15, 15, 0, Math.PI*2);
+                ctx.moveTo(5, 5); ctx.lineTo(25, 25);
                 ctx.stroke();
             }
 
