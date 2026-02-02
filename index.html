@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>鬼抓人 - 巨大化碰撞修正版</title>
+    <title>鬼抓人 - 蜘蛛與迷霧版</title>
     <style>
         :root {
             --bg-color: #fdf6e3;
@@ -172,6 +172,15 @@
         #gameOver {
             display: none;
         }
+
+        .controls-hint {
+            position: absolute;
+            bottom: 10px;
+            font-size: 12px;
+            color: #888;
+            text-align: center;
+            width: 100%;
+        }
     </style>
 </head>
 <body>
@@ -202,6 +211,7 @@
                 </div>
             </div>
             <button class="btn" onclick="preStart()">準備開始</button>
+            <div class="controls-hint">鬼: WASD移動 | 空白: 蝙蝠 | Ctrl: 蜘蛛 | Shift: 牆<br>人: 方向鍵移動 | Enter: 巨大化</div>
         </div>
 
         <!-- 啟動倒數 -->
@@ -218,7 +228,7 @@
         <!-- 遊戲 HUD -->
         <div class="ui-hud" id="hud">
             <div class="hud-card skill-ghost">
-                <span>鬼技能</span>
+                <span>鬼技能 (蜘蛛)</span>
                 <span id="ghostSkillHud">準備就緒</span>
             </div>
             <div class="hud-card timer-card">
@@ -250,6 +260,7 @@
         let isEntering = false;
         let lastTime = 0;
         let timerAcc = 0;
+        let fogTimer = 0; 
         
         let config = { 
             players: 2, 
@@ -264,10 +275,13 @@
         const keys = {};
         const SIZE = 35;
         const walls = []; 
+        const fogs = []; 
 
         const ghost = { 
             x: -100, y: 225, targetX: 100, targetY: 225, 
             w: SIZE, h: SIZE, color: '#FFFFFF', bats: [],
+            spider: null, // 蜘蛛對象
+            webs: [],     // 蛛網陣列
             skillCooldown: 0
         };
 
@@ -277,13 +291,18 @@
             isPowered: false,
             powerTimer: 0,
             skillCooldown: 0,
-            visualScale: 1 
+            visualScale: 1,
+            stunnedTimer: 0 // 被束縛時間
         };
 
         window.addEventListener('keydown', e => { 
-            if (e.code === 'Space' && gameActive) createBats(); 
+            if (e.code === 'Space' && gameActive) {
+                // 如果蜘蛛不存在，才能放蝙蝠
+                if (!ghost.spider) createBats(); 
+            }
             if (e.code === 'Enter' && gameActive) triggerKidSkill();
             if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && gameActive) triggerGhostSkill();
+            if ((e.code === 'ControlLeft' || e.code === 'ControlRight') && gameActive) triggerSpiderSkill();
             keys[e.code] = true; 
         });
         window.addEventListener('keyup', e => keys[e.code] = false);
@@ -306,6 +325,8 @@
             config.kidSpeed = parseFloat(document.getElementById('cfgKidSpeed').value) || 4.5;
 
             ghost.x = -100; ghost.y = 225; ghost.bats = [];
+            ghost.spider = null;
+            ghost.webs = [];
             ghost.skillCooldown = 0;
             
             kid.x = 900; kid.y = 225;
@@ -313,8 +334,11 @@
             kid.powerTimer = 0;
             kid.skillCooldown = 0;
             kid.visualScale = 1;
+            kid.stunnedTimer = 0;
 
             walls.length = 0; 
+            fogs.length = 0;
+            fogTimer = 0;
             
             timeLeft = config.time;
             timerElement.innerText = timeLeft;
@@ -371,6 +395,37 @@
             }
         }
 
+        function triggerSpiderSkill() {
+            // 如果目前沒有蜘蛛，則可以召喚
+            if (!ghost.spider) {
+                ghost.spider = {
+                    x: ghost.x,
+                    y: ghost.y,
+                    w: 40,
+                    h: 30,
+                    shootAcc: 0,
+                    shotsLeft: 5 // 噴射 5 次後消失
+                };
+            }
+        }
+
+        function createFogs() {
+            const count = 15 + Math.random() * 5;
+            for (let i = 0; i < count; i++) {
+                fogs.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    radius: 80 + Math.random() * 120,
+                    vx: (Math.random() - 0.5) * 0.5,
+                    vy: (Math.random() - 0.5) * 0.5,
+                    opacity: 0,
+                    maxOpacity: 0.4 + Math.random() * 0.4,
+                    life: 8000 + Math.random() * 4000, 
+                    phase: 'in' 
+                });
+            }
+        }
+
         function enterAnimationLoop(timestamp) {
             if (!isEntering) return;
             const deltaTime = timestamp - lastTime;
@@ -413,7 +468,6 @@
         }
 
         function checkWallCollision(objX, objY, objW, objH) {
-            // 修正：巨大化期間也會被牆壁阻擋
             for (const wall of walls) {
                 if (objX < wall.x + wall.w && objX + objW > wall.x &&
                     objY < wall.y + wall.h && objY + objH > wall.y) {
@@ -427,6 +481,13 @@
             if (!gameActive) return;
 
             timerAcc += deltaTime;
+            fogTimer += deltaTime;
+
+            if (fogTimer >= 10000) {
+                createFogs();
+                fogTimer = 0;
+            }
+
             if (timerAcc >= 1000) {
                 timeLeft--;
                 timerElement.innerText = timeLeft;
@@ -434,6 +495,67 @@
                 if (timeLeft <= 0) {
                     endGame("Draw");
                 }
+            }
+
+            // 更新迷霧
+            for (let i = fogs.length - 1; i >= 0; i--) {
+                const f = fogs[i];
+                f.x += f.vx; f.y += f.vy;
+                f.life -= deltaTime;
+                if (f.phase === 'in') {
+                    f.opacity += 0.005;
+                    if (f.opacity >= f.maxOpacity) f.phase = 'stay';
+                } else if (f.life < 2000) {
+                    f.phase = 'out';
+                    f.opacity -= 0.005;
+                }
+                if (f.life <= 0 || f.opacity <= 0) fogs.splice(i, 1);
+            }
+
+            // 更新蜘蛛
+            if (ghost.spider) {
+                ghost.spider.shootAcc += deltaTime;
+                if (ghost.spider.shootAcc >= 2000) {
+                    // 生成蛛網：直線向右方發射
+                    ghost.webs.push({
+                        x: ghost.spider.x + 20,
+                        y: ghost.spider.y + 10,
+                        radius: 15,
+                        vx: 6,
+                        vy: 0,
+                        life: 3000
+                    });
+                    ghost.spider.shootAcc = 0;
+                    ghost.spider.shotsLeft--; // 減少剩餘射擊次數
+                    
+                    // 次數用完後消失
+                    if (ghost.spider.shotsLeft <= 0) {
+                        ghost.spider = null;
+                    }
+                }
+            }
+
+            // 更新蛛網
+            for (let i = ghost.webs.length - 1; i >= 0; i--) {
+                const w = ghost.webs[i];
+                w.x += w.vx;
+                w.life -= deltaTime;
+                
+                // 檢查與人類的碰撞
+                const kw = kid.w * kid.visualScale;
+                const kh = kid.h * kid.visualScale;
+                if (w.x + w.radius > kid.x && w.x - w.radius < kid.x + kw &&
+                    w.y + w.radius > kid.y && w.y - w.radius < kid.y + kh) {
+                    kid.stunnedTimer = 2000; // 被包住 2 秒
+                    ghost.webs.splice(i, 1);
+                    continue;
+                }
+                if (w.life <= 0) ghost.webs.splice(i, 1);
+            }
+
+            // 人類受困計時
+            if (kid.stunnedTimer > 0) {
+                kid.stunnedTimer -= deltaTime;
             }
 
             if (kid.isPowered) {
@@ -444,6 +566,7 @@
                 kid.visualScale += (1.0 - kid.visualScale) * 0.1;
             }
 
+            // 更新 HUD 狀態
             if (kid.skillCooldown > 0) {
                 kid.skillCooldown -= deltaTime;
                 kidSkillHud.innerText = Math.max(0, (kid.skillCooldown / 1000)).toFixed(1) + "s";
@@ -451,7 +574,9 @@
                 kidSkillHud.innerText = "準備就緒";
             }
 
-            if (ghost.skillCooldown > 0) {
+            if (ghost.spider) {
+                ghostSkillHud.innerText = "蜘蛛活動中 (" + ghost.spider.shotsLeft + ")";
+            } else if (ghost.skillCooldown > 0) {
                 ghost.skillCooldown -= deltaTime;
                 ghostSkillHud.innerText = Math.max(0, (ghost.skillCooldown / 1000)).toFixed(1) + "s";
             } else {
@@ -492,51 +617,50 @@
             if (keys['KeyA'] && ghost.x > 0) ghost.x -= gs;
             if (keys['KeyD'] && ghost.x < canvas.width - ghost.w) ghost.x += gs;
 
-            const ks = kid.isPowered ? config.kidSpeed * 1.2 : config.kidSpeed; 
-            const kw = kid.w * kid.visualScale;
-            const kh = kid.h * kid.visualScale;
+            // 只有在沒受困時才能移動
+            if (kid.stunnedTimer <= 0) {
+                const ks = kid.isPowered ? config.kidSpeed * 1.2 : config.kidSpeed; 
+                const kw = kid.w * kid.visualScale;
+                const kh = kid.h * kid.visualScale;
 
-            if (config.players === 2) {
-                let nextX = kid.x;
-                let nextY = kid.y;
-
-                if (keys['ArrowUp'] && kid.y > 0) {
-                    nextY = kid.y - ks;
-                    if (!checkWallCollision(kid.x, nextY, kw, kh)) kid.y = nextY;
+                if (config.players === 2) {
+                    let nextX = kid.x;
+                    let nextY = kid.y;
+                    if (keys['ArrowUp']) {
+                        nextY = kid.y - ks;
+                        if (nextY >= 0 && !checkWallCollision(kid.x, nextY, kw, kh)) kid.y = nextY;
+                    }
+                    if (keys['ArrowDown']) {
+                        nextY = kid.y + ks;
+                        if (nextY <= canvas.height - kh && !checkWallCollision(kid.x, nextY, kw, kh)) kid.y = nextY;
+                    }
+                    if (keys['ArrowLeft']) {
+                        nextX = kid.x - ks;
+                        if (nextX >= 0 && !checkWallCollision(nextX, kid.y, kw, kh)) kid.x = nextX;
+                    }
+                    if (keys['ArrowRight']) {
+                        nextX = kid.x + ks;
+                        if (nextX <= canvas.width - kw && !checkWallCollision(nextX, kid.y, kw, kh)) kid.x = nextX;
+                    }
+                } else {
+                    let dx = kid.x - ghost.x;
+                    let dy = kid.y - ghost.y;
+                    let dist = Math.sqrt(dx*dx + dy*dy);
+                    if (dist < 120 && kid.skillCooldown <= 0) triggerKidSkill();
+                    let vx = (dx / dist) * ks * 0.8;
+                    let vy = (dy / dist) * ks * 0.8;
+                    let nextX = kid.x + vx;
+                    let nextY = kid.y + vy;
+                    if (nextX >= 0 && nextX <= canvas.width - kw && 
+                        nextY >= 0 && nextY <= canvas.height - kh &&
+                        !checkWallCollision(nextX, nextY, kw, kh)) {
+                        kid.x = nextX; kid.y = nextY;
+                    }
                 }
-                if (keys['ArrowDown'] && kid.y < canvas.height - kh) {
-                    nextY = kid.y + ks;
-                    if (!checkWallCollision(kid.x, nextY, kw, kh)) kid.y = nextY;
-                }
-                if (keys['ArrowLeft'] && kid.x > 0) {
-                    nextX = kid.x - ks;
-                    if (!checkWallCollision(nextX, kid.y, kw, kh)) kid.x = nextX;
-                }
-                if (keys['ArrowRight'] && kid.x < canvas.width - kw) {
-                    nextX = kid.x + ks;
-                    if (!checkWallCollision(nextX, kid.y, kw, kh)) kid.x = nextX;
-                }
-            } else {
-                let dx = kid.x - ghost.x;
-                let dy = kid.y - ghost.y;
-                let dist = Math.sqrt(dx*dx + dy*dy);
-                
-                if (dist < 120 && kid.skillCooldown <= 0) triggerKidSkill();
-
-                let vx = (dx / dist) * ks * 0.8;
-                let vy = (dy / dist) * ks * 0.8;
-                
-                let nextX = kid.x + vx;
-                let nextY = kid.y + vy;
-
-                if (!checkWallCollision(nextX, nextY, kw, kh)) {
-                    kid.x = nextX; kid.y = nextY;
-                }
-
-                if (kid.x < 0) kid.x = 0; if (kid.x > canvas.width - kw) kid.x = canvas.width - kw;
-                if (kid.y < 0) kid.y = 0; if (kid.y > canvas.height - kh) kid.y = canvas.height - kh;
             }
 
+            const kw = kid.w * kid.visualScale;
+            const kh = kid.h * kid.visualScale;
             const kidHitbox = { x: kid.x, y: kid.y, w: kw, h: kh };
             if (ghost.x < kidHitbox.x + kidHitbox.w && ghost.x + ghost.w > kidHitbox.x &&
                 ghost.y < kidHitbox.y + kidHitbox.h && ghost.y + ghost.h > kidHitbox.y) {
@@ -557,17 +681,57 @@
             ctx.shadowColor = '#7e57c2';
             ctx.globalAlpha = 0.5 + Math.sin(w.pulse) * 0.2;
             ctx.fillRect(w.x, w.y, w.w, w.h);
-            ctx.strokeStyle = 'white';
-            ctx.lineWidth = 2;
+            ctx.strokeStyle = 'white'; ctx.lineWidth = 2;
             ctx.strokeRect(w.x + 5, w.y + 5, w.w - 10, w.h - 10);
+            ctx.restore();
+        }
+
+        function drawFog(f) {
+            ctx.save();
+            const grad = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.radius);
+            grad.addColorStop(0, `rgba(200, 230, 220, ${f.opacity})`);
+            grad.addColorStop(1, 'rgba(200, 230, 220, 0)');
+            ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(f.x, f.y, f.radius, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+        }
+
+        function drawSpider(s) {
+            ctx.save();
+            ctx.translate(s.x, s.y);
+            // 畫蜘蛛身體
+            ctx.fillStyle = "#222";
+            ctx.beginPath(); ctx.ellipse(20, 15, 12, 10, 0, 0, Math.PI * 2); ctx.fill();
+            // 畫眼睛
+            ctx.fillStyle = "red";
+            ctx.beginPath(); ctx.arc(16, 12, 1.5, 0, Math.PI*2); ctx.arc(24, 12, 1.5, 0, Math.PI*2); ctx.fill();
+            // 畫腳
+            ctx.strokeStyle = "#222"; ctx.lineWidth = 2;
+            for(let i=0; i<4; i++) {
+                ctx.beginPath(); ctx.moveTo(12, 15); ctx.lineTo(2, 5 + i*8); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(28, 15); ctx.lineTo(38, 5 + i*8); ctx.stroke();
+            }
+            ctx.restore();
+        }
+
+        function drawWeb(w) {
+            ctx.save();
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(w.x, w.y, w.radius, 0, Math.PI*2);
+            for(let i=0; i<8; i++) {
+                const ang = (i/8)*Math.PI*2;
+                ctx.moveTo(w.x, w.y);
+                ctx.lineTo(w.x + Math.cos(ang)*w.radius, w.y + Math.sin(ang)*w.radius);
+            }
+            ctx.stroke();
             ctx.restore();
         }
 
         function drawBat(b) {
             ctx.fillStyle = "#333";
             const wingY = Math.sin(b.wingState) * 6;
-            ctx.beginPath();
-            ctx.ellipse(b.x, b.y, 4, 3, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(b.x, b.y, 4, 3, 0, 0, Math.PI * 2); ctx.fill();
             ctx.beginPath(); ctx.moveTo(b.x - 2, b.y); ctx.lineTo(b.x - 10, b.y - wingY); ctx.lineTo(b.x - 2, b.y + 2); ctx.fill();
             ctx.beginPath(); ctx.moveTo(b.x + 2, b.y); ctx.lineTo(b.x + 10, b.y - wingY); ctx.lineTo(b.x + 2, b.y + 2); ctx.fill();
         }
@@ -589,24 +753,23 @@
             
             ctx.fillStyle = kid.isPowered ? '#ffd700' : '#b2dfdb'; 
             ctx.fillRect(5, 15, 20, 20);
-            
             ctx.fillStyle = kid.isPowered ? '#fff176' : kid.color; 
             ctx.beginPath(); ctx.arc(15, 10, 10, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(12, 9, 1.5, 0, Math.PI * 2); ctx.arc(18, 9, 1.5, 0, Math.PI * 2); ctx.fill();
             
-            ctx.fillStyle = '#333'; 
-            ctx.beginPath(); ctx.arc(12, 9, 1.5, 0, Math.PI * 2); ctx.arc(18, 9, 1.5, 0, Math.PI * 2); ctx.fill();
-            
+            // 被困住時畫出網格
+            if (kid.stunnedTimer > 0) {
+                ctx.strokeStyle = "rgba(255, 255, 255, 0.9)"; ctx.lineWidth = 1.5;
+                ctx.strokeRect(-2, -2, 34, 34);
+                ctx.beginPath(); ctx.moveTo(-2, -2); ctx.lineTo(32, 32); ctx.moveTo(32, -2); ctx.lineTo(-2, 32); ctx.stroke();
+            }
+
             if (kid.isPowered) {
                 ctx.restore();
                 ctx.save();
-                ctx.strokeStyle = '#ffd700';
-                ctx.lineWidth = 4;
-                ctx.shadowBlur = 20;
-                ctx.shadowColor = '#ffd700';
-                ctx.globalAlpha = 0.6;
-                ctx.beginPath(); 
-                ctx.arc(x + (15 * scale), y + (15 * scale), (25 * scale) + pulse, 0, Math.PI * 2); 
-                ctx.stroke();
+                ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 4;
+                ctx.shadowBlur = 20; ctx.shadowColor = '#ffd700'; ctx.globalAlpha = 0.6;
+                ctx.beginPath(); ctx.arc(x + (15 * scale), y + (15 * scale), (25 * scale) + pulse, 0, Math.PI * 2); ctx.stroke();
             }
             ctx.restore();
         }
@@ -617,9 +780,12 @@
             ctx.beginPath(); ctx.moveTo(0, 450); ctx.quadraticCurveTo(200, 380, 400, 420); ctx.quadraticCurveTo(600, 460, 800, 410); ctx.lineTo(800, 450); ctx.fill();
             
             walls.forEach(drawWall);
+            if (ghost.spider) drawSpider(ghost.spider);
+            ghost.webs.forEach(drawWeb);
             ghost.bats.forEach(drawBat);
             drawKid(kid.x, kid.y);
             drawGhost(ghost.x, ghost.y);
+            fogs.forEach(drawFog);
         }
 
         function gameLoop(timestamp) {
